@@ -1,0 +1,50 @@
+*.iml
+# Gradle
+.gradle/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+.kotlin/
+/local.properties
+local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+*.iml
+*.ipr
+*.iws
+out/
+.DS_Store
+Thumbs.db
+Desktop.ini
+/build
+
+# Profiling and debugging
+*.hprof
+/captures
+.externalNativeBuild
+.cxx
+
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Signing keys and credentials
+*.jks
+*.keystore
+key.properties
+secrets.properties
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.bak
+
+# Generated code
+kaptGenerated/
+*/generated/
