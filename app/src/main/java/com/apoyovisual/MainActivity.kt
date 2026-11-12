@@ -42,11 +42,12 @@ import android.os.Looper
 import org.tensorflow.lite.support.image.TensorImage
 import org.tensorflow.lite.task.vision.detector.ObjectDetector
 
-private val Navy = Color(0xFF102A43)
-private val Panel = Color(0xFF243B53)
-private val Accent = Color(0xFF00A6A6)
-private val White = Color(0xFFFFFFFF)
-private val Muted = Color(0xFF627D98)
+// Paleta oscura con botones luminosos y texto de alto contraste.
+private val Navy = Color(0xFF0B1423)       // Fondo principal
+private val Panel = Color(0xFF17263A)      // Tarjetas y paneles
+private val Accent = Color(0xFFFFD166)     // Botones dorados claros
+private val White = Color(0xFFF8FAFC)      // Texto principal
+private val Muted = Color(0xFFD5DFEA)      // Texto secundario
 private val Black = Color(0xFF000000)
 
 class MainActivity : ComponentActivity() {
@@ -73,6 +74,7 @@ fun ApoyoVisualApp() {
     var objectResults by remember { mutableStateOf("") }
     var locationText by remember { mutableStateOf("Ubicación no consultada") }
     var ttsReady by remember { mutableStateOf(false) }
+    var pendingSpeech by remember { mutableStateOf("") }
 
     val backgroundColor = if (highContrast) Black else Navy
     val cardColor = if (highContrast) Black else Panel
@@ -100,7 +102,9 @@ fun ApoyoVisualApp() {
         if (message.isBlank()) {
             status = "No hay texto para reproducir."
         } else if (!ttsReady) {
-            status = "El motor de voz todavía está iniciando."
+            // Conserva el mensaje y lo reproduce cuando el motor termine de iniciar.
+            pendingSpeech = message
+            status = "El motor de voz todavía está iniciando. El mensaje se reproducirá en cuanto esté listo."
         } else {
             try {
                 tts.stop()
@@ -151,6 +155,15 @@ fun ApoyoVisualApp() {
             } catch (e: Exception) {
                 status = "Error de voz: ${e.message}"
             }
+        }
+    }
+
+    // Reproduce el último mensaje pendiente cuando TextToSpeech termina de iniciar.
+    LaunchedEffect(ttsReady) {
+        if (ttsReady && pendingSpeech.isNotBlank()) {
+            val message = pendingSpeech
+            pendingSpeech = ""
+            speak(message)
         }
     }
 
@@ -296,7 +309,7 @@ fun ApoyoVisualApp() {
             primary = Accent,
             background = backgroundColor,
             surface = cardColor,
-            onPrimary = White,
+            onPrimary = Navy,
             onBackground = White,
             onSurface = White
         )
@@ -752,7 +765,7 @@ fun BigButton(
         shape = RoundedCornerShape(14.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = Accent,
-            contentColor = White
+            contentColor = Navy
         )
     ) {
         Icon(
@@ -848,7 +861,15 @@ fun SettingSwitch(
 
             Switch(
                 checked = checked,
-                onCheckedChange = onCheckedChange
+                onCheckedChange = onCheckedChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Navy,
+                    checkedTrackColor = Accent,
+                    checkedBorderColor = Accent,
+                    uncheckedThumbColor = Muted,
+                    uncheckedTrackColor = Panel,
+                    uncheckedBorderColor = Muted
+                )
             )
         }
     }
@@ -964,7 +985,7 @@ fun detectarObjetos(
 
             val objetos = detecciones
                 .flatMap { it.categories }
-                .filter { it.score >= 0.35f }
+                .filter { it.score >= 0.55f }
                 .sortedByDescending { it.score }
                 .map { traducirObjeto(it.label) }
                 .distinct()
