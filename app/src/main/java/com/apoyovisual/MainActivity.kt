@@ -966,6 +966,7 @@ fun getLocationText(context: Context): String {
         "Error al consultar la ubicación: ${e.message}"
     }
 }
+
 fun detectarObjetos(
     context: Context,
     bitmap: Bitmap,
@@ -977,24 +978,53 @@ fun detectarObjetos(
         try {
             detector = ObjectDetector.createFromFile(
                 context.applicationContext,
-                "efficientdet-lite0.tflite"
+                "efficientdet-lite2.tflite"
             )
 
             val imagen = TensorImage.fromBitmap(bitmap)
             val detecciones = detector.detect(imagen)
 
-            val objetos = detecciones
+            val categorias = detecciones
                 .flatMap { it.categories }
-                .filter { it.score >= 0.55f }
                 .sortedByDescending { it.score }
-                .map { traducirObjeto(it.label) }
-                .distinct()
+
+            // Registrar todas las categorías para diagnosticar errores.
+            categorias.forEach { categoria ->
+                android.util.Log.d(
+                    "ApoyoVisual",
+                    "Categoría: ${categoria.label}, " +
+                            "Confianza: ${(categoria.score * 100).toInt()}%"
+                )
+            }
+
+            val mejores = categorias
+                .filter { it.score >= 0.55f }
+                .filter { it.score >= 0.35f }
+                .distinctBy { it.label }
                 .take(5)
 
-            val resultado = if (objetos.isEmpty()) {
-                "No pude identificar objetos con suficiente confianza. Intenta tomar otra fotografía con mejor iluminación."
-            } else {
-                "Identifiqué los siguientes objetos: ${objetos.joinToString(", ")}."
+            val resultado = when {
+                mejores.isEmpty() -> {
+                    "No pude identificar objetos. " +
+                            "Intenta tomar otra fotografía."
+                }
+
+                else -> {
+                    mejores.joinToString(
+                        separator = ". ",
+                        prefix = "Esto es lo que pude reconocer: ",
+                        postfix = "."
+                    ) { categoria ->
+                        val nombre = traducirObjeto(categoria.label)
+                        val confianza = (categoria.score * 100).toInt()
+
+                        if (categoria.score >= 0.65f) {
+                            "$nombre, con una confianza del $confianza por ciento"
+                        } else {
+                            "Posiblemente $nombre, con una confianza del $confianza por ciento"
+                        }
+                    }
+                }
             }
 
             Handler(Looper.getMainLooper()).post {
@@ -1002,24 +1032,21 @@ fun detectarObjetos(
             }
 
         } catch (e: Exception) {
-
             android.util.Log.e(
                 "ApoyoVisual",
-                "Error completo al inicializar o ejecutar el detector",
+                "Error al detectar objetos",
                 e
             )
 
             Handler(Looper.getMainLooper()).post {
-                onResult(
-                    "Error al identificar objetos. Revisa el registro de errores."
-                )
+                onResult("No fue posible identificar los objetos.")
             }
-
         } finally {
             detector?.close()
         }
     }.start()
 }
+
 
 fun traducirObjeto(label: String): String {
     return when (label.lowercase(Locale.ROOT)) {
@@ -1063,7 +1090,7 @@ fun traducirObjeto(label: String): String {
         "mouse" -> "ratón"
         "remote" -> "control remoto"
         "keyboard" -> "teclado"
-        "cell phone" -> "teléfono"
+        "cell phone" -> "teléfono celular"
         "microwave" -> "microondas"
         "oven" -> "horno"
         "sink" -> "fregadero"
