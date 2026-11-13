@@ -981,7 +981,12 @@ fun detectarObjetos(
                 "efficientdet-lite2.tflite"
             )
 
-            val imagen = TensorImage.fromBitmap(bitmap)
+            val argbBitmap = if (bitmap.config == Bitmap.Config.ARGB_8888) {
+                bitmap
+            } else {
+                bitmap.copy(Bitmap.Config.ARGB_8888, true)
+            }
+            val imagen = TensorImage.fromBitmap(argbBitmap)
             val detecciones = detector.detect(imagen)
 
             val categorias = detecciones
