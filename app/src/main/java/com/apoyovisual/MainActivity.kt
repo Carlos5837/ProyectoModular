@@ -2,6 +2,9 @@ package com.apoyovisual
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.speech.RecognizerIntent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
@@ -75,6 +78,20 @@ fun ApoyoVisualApp() {
     var locationText by remember { mutableStateOf("Ubicación no consultada") }
     var ttsReady by remember { mutableStateOf(false) }
     var pendingSpeech by remember { mutableStateOf("") }
+
+    // Contacto de emergencia guardado localmente en el dispositivo.
+    val emergencyPrefs = remember {
+        context.getSharedPreferences("ojos_para_ti_emergency", Context.MODE_PRIVATE)
+    }
+    var familyName by remember {
+        mutableStateOf(emergencyPrefs.getString("family_name", "") ?: "")
+    }
+    var familyPhone by remember {
+        mutableStateOf(emergencyPrefs.getString("family_phone", "") ?: "")
+    }
+    var showEmergencyDialog by remember { mutableStateOf(false) }
+    var pendingEmergencyNumber by remember { mutableStateOf("911") }
+    var pendingEmergencyLabel by remember { mutableStateOf("emergencias") }
 
     val backgroundColor = if (highContrast) Black else Navy
     val cardColor = if (highContrast) Black else Panel
@@ -304,6 +321,97 @@ fun ApoyoVisualApp() {
         }
     }
 
+    // Reconocimiento de comandos de voz mediante el reconocedor del dispositivo.
+    val voiceCommandLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val command = result.data
+            ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()
+            ?.lowercase(Locale("es", "MX"))
+            ?.trim()
+            .orEmpty()
+
+        when {
+            command.isBlank() -> {
+                status = "No se reconoció ningún comando."
+                speak(status)
+            }
+            command.contains("emergencia") || command.contains("novecientos once") ||
+                    command.contains("nueve uno uno") || command.contains("911") -> {
+                pendingEmergencyNumber = "911"
+                pendingEmergencyLabel = "emergencias"
+                showEmergencyDialog = true
+                speak("Voy a abrir el marcador del 911. Confirma la llamada en el teléfono.")
+            }
+            command.contains("familiar") || command.contains("contacto") -> {
+                if (familyPhone.isNotBlank()) {
+                    pendingEmergencyNumber = familyPhone
+                    pendingEmergencyLabel = familyName.ifBlank { "tu contacto familiar" }
+                    showEmergencyDialog = true
+                    speak("Voy a abrir el marcador de ${pendingEmergencyLabel}. Confirma la llamada.")
+                } else {
+                    screen = "Configuración"
+                    speak("Primero configura el nombre y teléfono de tu contacto familiar.")
+                }
+            }
+            command.contains("lee") || command.contains("leer texto") -> {
+                screen = "Leer texto"
+                speak("Abriendo lectura de texto.")
+            }
+            command.contains("identifica") || command.contains("identificar objetos") ||
+                    command.contains("reconoce objetos") -> {
+                screen = "Identificar objetos"
+                speak("Abriendo identificación de objetos.")
+            }
+            command.contains("orientación") || command.contains("ubicación") ||
+                    command.contains("dónde estoy") -> {
+                screen = "Orientación"
+                speak("Abriendo orientación y movilidad.")
+            }
+            command.contains("configuración") || command.contains("ajustes") -> {
+                screen = "Configuración"
+                speak("Abriendo configuración.")
+            }
+            command.contains("ayuda") -> {
+                screen = "Ayuda"
+                speak("Abriendo ayuda.")
+            }
+            command.contains("repite") || command.contains("repetir") -> {
+                val lastMessage = when (screen) {
+                    "Leer texto" -> recognizedText
+                    "Identificar objetos" -> objectResults
+                    "Orientación" -> locationText
+                    else -> status
+                }
+                if (lastMessage.isNotBlank()) speak(lastMessage)
+                else speak("Todavía no hay información para repetir.")
+            }
+            else -> {
+                speak("No reconocí ese comando. Puedes decir: leer texto, identificar objetos, orientación, configuración, llamar a emergencias o llamar a mi familiar.")
+            }
+        }
+    }
+
+    val startVoiceCommand = {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(
+                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+            )
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-MX")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "es-MX")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Di un comando para Ojos para Ti")
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+        }
+        try {
+            voiceCommandLauncher.launch(intent)
+        } catch (e: Exception) {
+            status = "No hay un servicio de reconocimiento de voz disponible."
+            speak(status)
+        }
+    }
+
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = Accent,
@@ -353,7 +461,7 @@ fun ApoyoVisualApp() {
                 when (screen) {
                     "Inicio" -> {
                         Text(
-                            text = "APOYO VISUAL",
+                            text = "OJOS PARA TI",
                             fontSize = 30.sp,
                             fontWeight = FontWeight.Bold,
                             color = White,
@@ -369,7 +477,62 @@ fun ApoyoVisualApp() {
                             textAlign = TextAlign.Center
                         )
 
-                        Spacer(modifier = Modifier.height(25.dp))
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        BigButton(
+                            text = "Comandos de voz",
+                            icon = Icons.Filled.Mic
+                        ) {
+                            startVoiceCommand()
+                        }
+
+                        Button(
+                            onClick = {
+                                pendingEmergencyNumber = "911"
+                                pendingEmergencyLabel = "emergencias"
+                                showEmergencyDialog = true
+                                speak("Botón de emergencia. Se abrirá el marcador para confirmar la llamada al 911.")
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 7.dp)
+                                .heightIn(min = 68.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFB3261E),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Icon(
+                                Icons.Filled.Warning,
+                                contentDescription = "Emergencia",
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                "EMERGENCIA 911",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        BigButton(
+                            text = "Llamar a mi familiar",
+                            icon = Icons.Filled.Phone
+                        ) {
+                            val savedPhone = emergencyPrefs.getString("family_phone", "").orEmpty()
+                            if (savedPhone.isBlank()) {
+                                screen = "Configuración"
+                                speak("Primero configura tu contacto familiar.")
+                            } else {
+                                pendingEmergencyNumber = savedPhone
+                                pendingEmergencyLabel = emergencyPrefs.getString(
+                                    "family_name",
+                                    "tu familiar"
+                                ) ?: "tu familiar"
+                                showEmergencyDialog = true
+                            }
+                        }
 
                         BigButton(
                             text = "Leer texto",
@@ -515,7 +678,7 @@ fun ApoyoVisualApp() {
                         Spacer(modifier = Modifier.height(15.dp))
 
                         Text(
-                            text = "Toma una fotografía para que Apoyo Visual intente reconocer los objetos que aparecen en ella.",
+                            text = "Toma una fotografía para que Ojos para Ti intente reconocer los objetos que aparecen en ella.",
                             color = White,
                             fontSize = bodySize,
                             textAlign = TextAlign.Center
@@ -692,11 +855,94 @@ fun ApoyoVisualApp() {
                             onCheckedChange = { highContrast = it }
                         )
 
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        Text(
+                            text = "Contacto familiar de emergencia",
+                            color = White,
+                            fontSize = titleSize,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Text(
+                            text = "Guarda un contacto al que puedas llamar desde el botón de emergencia o mediante un comando de voz.",
+                            color = Muted,
+                            fontSize = bodySize
+                        )
+
+                        OutlinedTextField(
+                            value = familyName,
+                            onValueChange = { familyName = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Nombre del familiar") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = White,
+                                unfocusedTextColor = White,
+                                focusedBorderColor = Accent,
+                                unfocusedBorderColor = Muted,
+                                focusedLabelColor = Accent,
+                                unfocusedLabelColor = Muted,
+                                cursorColor = Accent
+                            )
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedTextField(
+                            value = familyPhone,
+                            onValueChange = { familyPhone = it.filter { c -> c.isDigit() || c == '+' || c == ' ' || c == '-' } },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Teléfono del familiar") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = White,
+                                unfocusedTextColor = White,
+                                focusedBorderColor = Accent,
+                                unfocusedBorderColor = Muted,
+                                focusedLabelColor = Accent,
+                                unfocusedLabelColor = Muted,
+                                cursorColor = Accent
+                            )
+                        )
+
+                        BigButton(
+                            text = "Guardar contacto de emergencia",
+                            icon = Icons.Filled.Save
+                        ) {
+                            val normalizedPhone = familyPhone.filter { it.isDigit() || it == '+' }
+                            if (familyName.isBlank() || normalizedPhone.length < 7) {
+                                speak("Escribe el nombre y un número telefónico válido.")
+                            } else {
+                                familyPhone = normalizedPhone
+                                emergencyPrefs.edit()
+                                    .putString("family_name", familyName.trim())
+                                    .putString("family_phone", normalizedPhone)
+                                    .apply()
+                                speak("Contacto de emergencia guardado.")
+                            }
+                        }
+
+                        BigButton(
+                            text = "Llamar a mi familiar",
+                            icon = Icons.Filled.Phone
+                        ) {
+                            val savedPhone = emergencyPrefs.getString("family_phone", "").orEmpty()
+                            if (savedPhone.isBlank()) {
+                                speak("Primero guarda un contacto familiar en configuración.")
+                            } else {
+                                pendingEmergencyNumber = savedPhone
+                                pendingEmergencyLabel = emergencyPrefs.getString("family_name", "tu familiar")
+                                    ?: "tu familiar"
+                                showEmergencyDialog = true
+                            }
+                        }
+
                         BigButton(
                             text = "Probar voz",
                             icon = Icons.Filled.VolumeUp
                         ) {
-                            speak("Esta es una prueba de lectura de Apoyo Visual.")
+                            speak("Esta es una prueba de lectura de Ojos para Ti.")
                         }
                     }
 
@@ -726,6 +972,16 @@ fun ApoyoVisualApp() {
                         )
 
                         HelpItem(
+                            title = "Emergencia",
+                            description = "Abre el marcador del 911 o permite llamar al contacto familiar guardado en Configuración. La llamada debe confirmarse en el teléfono."
+                        )
+
+                        HelpItem(
+                            title = "Comandos de voz",
+                            description = "Pulsa Comandos de voz y di: leer texto, identificar objetos, orientación, configuración, llamar a emergencias o llamar a mi familiar."
+                        )
+
+                        HelpItem(
                             title = "Accesibilidad",
                             description = "Los controles tienen etiquetas para facilitar su identificación. Puedes complementar su uso con TalkBack."
                         )
@@ -737,7 +993,7 @@ fun ApoyoVisualApp() {
                             icon = Icons.Filled.VolumeUp
                         ) {
                             speak(
-                                "Bienvenido a Apoyo Visual. " +
+                                "Bienvenido a Ojos para Ti. " +
                                         "Puedes leer texto utilizando la cámara, " +
                                         "consultar tu ubicación y modificar las opciones de voz."
                             )
@@ -745,6 +1001,44 @@ fun ApoyoVisualApp() {
                     }
                 }
             }
+        }
+
+        if (showEmergencyDialog) {
+            AlertDialog(
+                onDismissRequest = { showEmergencyDialog = false },
+                title = { Text("Confirmar llamada") },
+                text = {
+                    Text(
+                        "Se abrirá el marcador del teléfono para llamar a " +
+                                "$pendingEmergencyLabel ($pendingEmergencyNumber). " +
+                                "Revisa el número y confirma la llamada desde el teléfono."
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showEmergencyDialog = false
+                            try {
+                                val dialIntent = Intent(
+                                    Intent.ACTION_DIAL,
+                                    Uri.parse("tel:${Uri.encode(pendingEmergencyNumber)}")
+                                )
+                                context.startActivity(dialIntent)
+                            } catch (e: Exception) {
+                                status = "No se pudo abrir el marcador del teléfono."
+                                speak(status)
+                            }
+                        }
+                    ) {
+                        Text("Abrir marcador")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showEmergencyDialog = false }) {
+                        Text("Cancelar")
+                    }
+                }
+            )
         }
     }
 }
@@ -999,7 +1293,6 @@ fun detectarObjetos(
 
             val mejores = categorias
                 .filter { it.score >= 0.55f }
-                .filter { it.score >= 0.35f }
                 .distinctBy { it.label }
                 .take(5)
 
